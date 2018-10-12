@@ -1,0 +1,368 @@
+---
+title: "Bigmart sales"
+author: "Amritha"
+date: "12 October 2018"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+```{r}
+library(corrplot)
+library(ggplot2)
+library(rpart)
+library(dplyr)
+library(data.table)
+library(caret)
+bm_train<-read.csv("E://College stuff//SEM 2//Machine Learning//Analytics Vidhya//Big mart sales//Train_bm.csv")
+bm_test<-read.csv("E://College stuff//SEM 2//Machine Learning//Analytics Vidhya//Big mart sales//Test_bm.csv")
+
+
+str(bm_train)
+levels(bm_train$Item_Fat_Content)
+class(bm_train$Item_Fat_Content)
+```
+### Numerical and categorical columns
+```{r}
+
+d=function(x){
+num=sapply(x, is.numeric)
+fact=sapply(x,is.factor)
+return (list(names(x)[fact],names(x)[num]))
+}
+d(bm_train)
+```
+
+### Data Cleaning
+```{r}
+bm_train$Item_Fat_Content<-as.character(bm_train$Item_Fat_Content)
+bm_train$Item_Fat_Content<-gsub("LF", "Low Fat", bm_train$Item_Fat_Content)
+bm_train$Item_Fat_Content<-gsub("low fat", "Low Fat", bm_train$Item_Fat_Content)
+bm_train$Item_Fat_Content<-gsub("reg", "Regular", bm_train$Item_Fat_Content)
+bm_train$Item_Fat_Content[bm_train$Item_Fat_Content==""]<-NA
+bm_train$Item_Fat_Content<-as.factor(bm_train$Item_Fat_Content)
+levels(bm_train$Item_Fat_Content)
+
+levels(bm_train$Outlet_Size)
+bm_train$Outlet_Size<-as.character(bm_train$Outlet_Size)
+bm_train$Outlet_Size[bm_train$Outlet_Size==""]<-NA
+bm_train$Outlet_Size<-as.factor(as.character(bm_train$Outlet_Size))
+
+
+
+levels(bm_train$Outlet_Type)
+levels(bm_train$Item_Type)
+levels(bm_train$Outlet_Identifier)
+levels(bm_train$Outlet_Location_Type)
+
+```
+### Percentage of missing values
+```{r}
+
+missing<-function(x){
+  sapply(x,function(y)sum(is.na(y))/length(y)*100)
+}
+missing(bm_train)
+
+```
+
+
+### Percentage of outliers
+```{r}
+box<-function(x){
+  num_col<-names(x)[sapply(x, is.numeric)]
+  x<-x[,num_col]
+  sapply(x,function(y)length(boxplot.stats(y)$out)/sum(!is.na(y))*100)
+}
+box(bm_train)
+```
+### Imputing in Outlet Size
+
+```{r}
+bm_train$Outlet_Size<-as.character(bm_train$Outlet_Size)
+
+bm_train$Outlet_Size[bm_train$Outlet_Type == "Grocery Store" & bm_train$Outlet_Location_Type=="Tier 3"] = "Small"
+bm_train$Outlet_Size[bm_train$Outlet_Type=="Supermarket Type1" & bm_train$Outlet_Location_Type=="Tier 2"]="Small"
+
+sum(is.na(bm_train$Outlet_Size))
+
+bm_train$Outlet_Size<-as.factor(bm_train$Outlet_Size)
+
+```
+
+### Imputing in Item Weight
+```{r}
+
+
+
+# m1<-bm_train %>%select(Item_Fat_Content,Item_Type, Item_Weight) %>% group_by(Item_Fat_Content,Item_Type) %>%  summarise(avg=mean(Item_Weight))
+
+missing_index = which(is.na(bm_train$Item_Weight))
+for(i in missing_index){
+  
+  item = bm_train$Item_Identifier[i]
+  bm_train$Item_Weight[i] = mean(bm_train$Item_Weight[bm_train$Item_Identifier == item], na.rm = T)
+}
+
+
+bm_train[928,]
+bm_train[1923,]
+bm_train[4188,]
+bm_train[5023,]
+  
+
+
+sum(is.na(bm_train$Item_Weight))
+```
+
+### Imputing Item_Visibility
+```{r}
+length(bm_train$Item_Visibility[bm_train$Item_Visibility==0])
+
+missing_v<-which(bm_train$Item_Visibility==0)
+
+for (i in missing_v){
+  item = bm_train$Item_Identifier[i]
+  bm_train$Item_Visibility[i]=mean(bm_train$Item_Visibility[bm_train$Item_Identifier==item],na.rm=T)
+}
+
+
+
+```
+```{r}
+colnames(bm_train)
+```
+
+
+### Univariate analysis
+```{r}
+
+### Numerical data
+ggplot(bm_train,aes(x=Item_Weight)) + geom_histogram(binwidth = 0.5, fill = "green")
+ggplot(bm_train,aes(x=Item_MRP)) + geom_histogram(binwidth = 0.5, fill = "green")
+
+# Box plot for absolutely no good reason lol
+ggplot(bm_train,aes(x=Item_Fat_Content,y=Item_Weight)) + geom_boxplot()
+ggplot(bm_train,aes(x=Item_Type,y=Item_Weight)) + geom_boxplot()
+
+
+## Categorical Data
+
+ggplot(bm_train,aes(x=Item_Fat_Content)) + geom_bar(fill="coral1")
+
+ggplot(bm_train,aes(x=factor(Outlet_Establishment_Year)))+ geom_bar(fill="orange")
+
+ggplot(bm_train,aes(x=Item_Type)) + geom_bar(fill="violet")+theme(axis.text.x = element_text(angle=90))
+
+```
+### Bivariate Analysis
+```{r}
+colnames(bm_train)
+
+ggplot(bm_train,aes(x=Outlet_Size)) + geom_bar(fill="pink") + facet_wrap(~Outlet_Type)
+
+ggplot(bm_train,aes(x=Item_Type)) + geom_bar(fill="violet")+facet_grid(~Item_Fat_Content) +theme(axis.text.x = element_text(angle=90))
+
+ggplot(bm_train,aes(x=Outlet_Size,y=Item_Outlet_Sales))+geom_bar(stat="Identity")
+
+ggplot(bm_train,aes(x=Item_Type,y=Item_Outlet_Sales))+geom_bar(stat="Identity",fill="turquoise") +theme(axis.text.x = element_text(angle=90))
+
+ggplot(bm_train,aes(x=Item_Type,y=Item_Outlet_Sales,fill=Item_Fat_Content))+geom_bar(stat="Identity") +theme(axis.text.x = element_text(angle=90))
+
+ggplot(bm_train,aes(x=Item_Type,y=Item_Outlet_Sales,fill=Outlet_Size))+geom_bar(stat="Identity") +theme(axis.text.x = element_text(angle=90))
+
+```
+## FOR TEST DATA
+
+### Data Cleaning
+```{r}
+bm_test$Item_Fat_Content<-as.character(bm_test$Item_Fat_Content)
+bm_test$Item_Fat_Content<-gsub("LF", "Low Fat", bm_test$Item_Fat_Content)
+bm_test$Item_Fat_Content<-gsub("low fat", "Low Fat", bm_test$Item_Fat_Content)
+bm_test$Item_Fat_Content<-gsub("reg", "Regular", bm_test$Item_Fat_Content)
+bm_test$Item_Fat_Content[bm_test$Item_Fat_Content==""]<-NA
+bm_test$Item_Fat_Content<-as.factor(bm_test$Item_Fat_Content)
+levels(bm_test$Item_Fat_Content)
+
+levels(bm_test$Outlet_Size)
+bm_test$Outlet_Size<-as.character(bm_test$Outlet_Size)
+bm_test$Outlet_Size[bm_test$Outlet_Size==""]<-NA
+bm_test$Outlet_Size<-as.factor(as.character(bm_test$Outlet_Size))
+
+
+
+levels(bm_test$Outlet_Type)
+levels(bm_test$Item_Type)
+levels(bm_test$Outlet_Identifier)
+levels(bm_test$Outlet_Location_Type)
+
+```
+### Percentage of missing values
+```{r}
+
+missing<-function(x){
+  sapply(x,function(y)sum(is.na(y))/length(y)*100)
+}
+missing(bm_test)
+
+```
+
+
+### Percentage of outliers
+```{r}
+box<-function(x){
+  num_col<-names(x)[sapply(x, is.numeric)]
+  x<-x[,num_col]
+  sapply(x,function(y)length(boxplot.stats(y)$out)/sum(!is.na(y))*100)
+}
+box(bm_test)
+```
+### Imputing in Outlet Size
+
+```{r}
+bm_test$Outlet_Size<-as.character(bm_test$Outlet_Size)
+
+bm_test$Outlet_Size[bm_test$Outlet_Type == "Grocery Store" & bm_test$Outlet_Location_Type=="Tier 3"] = "Small"
+bm_test$Outlet_Size[bm_test$Outlet_Type=="Supermarket Type1" & bm_test$Outlet_Location_Type=="Tier 2"]="Small"
+
+sum(is.na(bm_test$Outlet_Size))
+
+bm_test$Outlet_Size<-as.factor(bm_test$Outlet_Size)
+
+```
+
+### Imputing in Item Weight
+```{r}
+
+sum(is.na(bm_test$Item_Weight))
+missing_index = which(is.na(bm_test$Item_Weight))
+for(i in missing_index){
+  item = as.character(bm_test$Item_Identifier[i])
+  bm_test$Item_Weight[i] = mean(bm_train$Item_Weight[as.character(bm_train$Item_Identifier) == item], na.rm = T)
+}
+
+
+```
+
+
+```{r}
+Item_Outlet_Sales<-NA
+bm_test<-cbind(bm_test,Item_Outlet_Sales)
+colnames(bm_train)
+```
+### Combining both data frames
+```{r}
+combi<-rbind(bm_train,bm_test)
+colnames(combi)
+```
+### Feature Engineering
+
+```{r}
+
+levels(combi$Item_Type)
+
+perishable<-c("Breads","Diary","Fruits and Vegetables","Seafood","Meat","Breakfast")
+non_perishable<-c("Baking Goods","Canned","Household","Hard Drinks","Soft Drinks","Frozen Foods","Health and Hygiene")
+
+
+combi$Item_Type_new = ifelse(combi$Item_Type %in% perishable,"perishable", ifelse(combi$Item_Type %in% non_perishable, "non_perishable","not_sure"))
+
+table(combi$Item_Type, substr(combi$Item_Identifier, 1, 2))
+
+
+combi$Item_category<-substr(combi$Item_Identifier,1,2)
+
+combi$Item_Fat_Content<-as.character(combi$Item_Fat_Content)
+combi$Item_Fat_Content[combi$Item_category=="NC"]<-"Non-edible"
+combi$Item_Fat_Content<-as.factor(combi$Item_Fat_Content)
+
+
+combi$Outlet_Years<-2013-combi$Outlet_Establishment_Year
+combi$Outlet_Establishment_Year<-as.factor(combi$Outlet_Establishment_Year)
+
+combi$price_per_unit_wgt<-combi$Item_MRP/combi$Item_Weight
+
+combi$Item_MRP_clusters<-ifelse(combi$Item_MRP<69,"1st",ifelse(combi$Item_MRP>=69 & combi$Item_MRP < 129, "2nd", ifelse(combi$Item_MRP>=136 & combi$Item_MRP <203, "3rd","4th")))
+
+## Encoding categorical variables
+
+combi$Outlet_size_num<-ifelse(combi$Outlet_Size == "Small",0, ifelse(combi$Outlet_Size=="Medium",1,2))
+
+combi$Outlet_Location_Type_num<-ifelse(combi$Outlet_Location_Type =="Tier 3",0, ifelse(combi$Outlet_Location_Type=="Tier 2",1,2))
+
+combi$Outlet_Size<-NULL
+combi$Outlet_Location_Type<-NULL
+
+ohe<-dummyVars(~.,data=combi %>% select(-Item_Identifier,-Outlet_Establishment_Year,-Item_Type)
+,fullRank = T)
+ohe_df<-data.table(predict(ohe,combi %>% select(-Item_Identifier,-Outlet_Establishment_Year,-Item_Type)))
+combi<-cbind(combi[,"Item_Identifier"],ohe_df)
+View(head(combi))
+
+```
+### Data Preprocessing
+
+```{r}
+## Skewness present in Visibility and price per unit wgt
+hist(combi$Item_Visibility)
+hist(combi$price_per_unit_wgt)
+
+combi$Item_Visibility<-log(combi$Item_Visibility+1)
+combi$price_per_unit_wgt<-log(combi$price_per_unit_wgt+1)
+
+## Scaling numeric predictors
+
+num_vars<-which(sapply(combi,is.numeric))
+num_vars_names<-names(num_vars)
+combi_numeric<-combi[,setdiff(num_vars_names,"Item_Outlet_Sales"),with = F]
+prep_num<-preProcess(combi_numeric,method = c("center","scale"))
+combi_numeric_norm<-predict(prep_num,combi_numeric)
+
+combi[,setdiff(num_vars_names,"Item_Outlet_Sales")]<-NULL
+combi<-cbind(combi,combi_numeric_norm)
+
+
+```
+
+### Splitting combi back to train and test
+
+```{r}
+
+bm_train<-combi[1:nrow(bm_train)]
+bm_test<-combi[(nrow(bm_train)+1):nrow(combi)]
+bm_test$Item_Outlet_Sales<-NULL
+
+```
+
+### Checking correlated variables
+```{r}
+# negative correlation: < 0 and >= -1
+# positive correlation: > 0 and <= 1
+# no correlation: 0
+
+
+cor_train<-cor(na.omit(bm_train %>% select(-V1)))
+corrplot(cor_train,method = "pie", type = "lower", tl.cex = 0.9)
+
+
+```
+
+### Linear Regression
+
+```{r}
+colnames(bm_test)
+bm_linear<<-lm(Item_Outlet_Sales~.,data=bm_train %>% select(-V1))
+bm_test$Item_Outlet_Sales<-predict(bm_linear,bm_test %>% select(-V1))
+
+colnames(bm_test)
+
+head(bm_test$Item_Outlet_Sales)
+
+subm_1<-c(bm_test$Item_Outlet_Sales)
+
+write.csv(sumb_1, "E://College stuff//SEM 2//Machine Learning//Analytics Vidhya//Big mart sales//Linear_Reg_sub1.csv", row.names = F)
+
+```
